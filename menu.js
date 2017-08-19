@@ -1,8 +1,7 @@
 const Inquirer = require("inquirer");
 const CardConstructor = require("./CardConstructors.js");
 const fs = require("fs");
-var currentCard = {};
-
+var practiceArr = [];
 
 
 function initialMenu(){
@@ -11,7 +10,7 @@ function initialMenu(){
             type: "list",
             name: "activity",
             message: "What would you like to do?",
-            choices: ["Create new cards", "Delete old cards", "Organize packs", "Practice with current cards"]
+            choices: ["Create new cards", "Delete old cards", "Organize packs", "Practice with current cards", "Quit"]
         }
     ]).then(function(inqResp){
         var activity = inqResp.activity;
@@ -24,6 +23,7 @@ function initialMenu(){
             packsMenu();
         } else if (activity === "Practice with current cards"){
             practiceMenu();
+        } else if (activity === "Quit"){
         }
     });
 }
@@ -93,7 +93,47 @@ function packsMenu(){
 }
 
 function practiceMenu(){
-
+    practiceArr = [];
+    Inquirer.prompt([
+        {
+            type: "list",
+            message: "Select the pack you want to use, or select 'All Cards'",
+            name: "practicePack",
+            choices: function(){
+                var cards = JSON.parse(fs.readFileSync("cards.json", "utf8"));
+                var choices = cards.packs;
+                choices.push("All Cards");
+                choices.push("Main Menu");
+                return choices;
+            }
+        }
+    ]).then(function(inqResp){
+        var practicePack = inqResp.practicePack;
+        if (practicePack === "Main Menu"){
+            initialMenu();
+        }
+        var cards = JSON.parse(fs.readFileSync("cards.json", "utf8"));
+        if (practicePack === "All Cards"){
+            cards.cards.flash.forEach(function(flashCard){
+                practiceArr.push(flashCard);
+            });
+            cards.cards.cloze.forEach(function(clozeCard){
+                practiceArr.push(clozeCard);
+            });
+        } else {
+            cards.cards.flash.forEach(function(flashCard){
+                if (flashCard.packs.includes(practicePack)){
+                    practiceArr.push(flashCard);
+                }
+            });
+            cards.cards.cloze.forEach(function(clozeCard){
+                if (clozeCard.packs.includes(practicePack)){
+                    practiceArr.push(clozeCard);
+                }
+            });
+        }  
+        quiz();
+    });
 }
 
 function createFlash(){
@@ -117,22 +157,39 @@ function createFlash(){
             name: "packs",
             message: "Which packs would you like to add this card to?",
             choices: function(){
-                var cards = JSON.parse(fs.readFileSync("cards.json", "utf8"));
-                var choices = cards.packs;
-                choices.push("None");
+                if (JSON.parse(fs.readFileSync("cards.json", "utf8"))){
+                    var cards = JSON.parse(fs.readFileSync("cards.json", "utf8"));
+                    var choices = cards.packs;
+                    choices.push("None");
+                } else {
+                    choices = ["None"];
+                }
                 return choices;
             }
         }
     ]).then(function(inqResp){
         var cards = JSON.parse(fs.readFileSync("cards.json", "utf8"));
         if (inqResp.packs.includes("None")){
-            packs = "";
+            packs = [];
         } else {
             packs = inqResp.packs;
         }
         front = inqResp.front;
         back = inqResp.back;
         CardConstructor.BasicCard(front, back, packs);
+        Inquirer.prompt([
+            {
+                type: "confirm",
+                message: "Would you like to make more flash cards?",
+                name: "moreFlash"
+            }
+        ]).then(function(inqResp){
+            if (inqResp.moreFlash){
+                createFlash();
+            } else {
+                initialMenu();
+            }
+        });
     });
 }
 
@@ -172,13 +229,26 @@ function createCloze(){
             var cards = JSON.parse(fs.readFileSync("cards.json", "utf8"));
             deletion = inqResp.deleteSelection;
             if (inqResp.packs.includes("None")){
-                packs = "";
+                packs = [];
             } else {
                 packs = inqResp.packs;
             }
             CardConstructor.ClozeCard(text, deletion, packs);
+            Inquirer.prompt([
+                {
+                    type: "confirm",
+                    message: "Would you like to make more cloze cards?",
+                    name: "moreCloze"
+                }
+            ]).then(function(inqResp){
+                if (inqResp.moreCloze){
+                    createCloze();
+                } else {
+                    initialMenu();
+                }
             });
         });
+    });
 }
 
 function createPacks(){
@@ -200,7 +270,7 @@ function createPacks(){
                 if (inqResp.morePacks){
                     createPacks();
                 } else {
-                    initialMenu();
+                    addToPacks();
                 }
             });
 }
@@ -273,34 +343,51 @@ function addToPacks(){
             type: "list",
             message: "Which pack would you like to add to?",
             name: "packForAdding",
-            choices: function (){
+            choices: function(){
                 var cards = JSON.parse(fs.readFileSync("cards.json", "utf8"));
                 var choices = cards.packs;
-                choices.push("Main Menu");
+                choices.push("Main Menu")
                 return choices;
             }
         }
     ]).then(function(inqResp){
+        var packForAdding = inqResp.packForAdding;
         if (inqResp.packForAdding === "Main Menu") {
             initialMenu();
-        } 
-        var packForAdding = inqResp.packForAdding;
+        }
         Inquirer.prompt([
             {
                 type: "checkbox",
-                message: `Please select all cards you would like to add to the pack '${packForAdding}`,
+                message: `Please select all cards you would like to add to the pack ${packForAdding}`,
                 name: "cardsAdded",
                 choices: function(){
                     var cards = JSON.parse(fs.readFileSync("cards.json", "utf8"));
-                    var choices = cards.cards.flash;
-                    choices.push(cards.cards.cloze);
+                    var choices = [];
+                    cards.cards.cloze.forEach(function(element){
+                        choices.push(element.text);
+                    });
+                    cards.cards.flash.forEach(function(element){
+                        choices.push(element.front);
+                    });
                     return choices;
                 }
             }
         ]).then(function(inqResp){
-            inqResp.cardsAdded.forEach(function (element){
-                element.packs.push(packForAdding);
+            var cards = JSON.parse(fs.readFileSync("cards.json", "utf8"));            
+            inqResp.cardsAdded.forEach(function (addedCard){
+                cards.cards.flash.forEach(function(flashCard){
+                    if (flashCard.front === addedCard){
+                        console.log(`If hit ${flashCard}  ${flashCard.front}  ${addedCard}`);
+                        flashCard.packs.push(packForAdding);
+                    }
+                });
+                cards.cards.cloze.forEach(function(clozeCard){
+                    if (clozeCard.front === addedCard){
+                        clozeCard.packs.push(packForAdding);
+                    }
+                });
             });
+            fs.writeFile("cards.json", JSON.stringify(cards), "utf8");
             Inquirer.prompt([
                 {
                     type: "confirm",
@@ -320,11 +407,181 @@ function addToPacks(){
 }
 
 function removeFromPacks(){
+    Inquirer.prompt([
+        {
+            type: "list",
+            message: "Which pack would you like to remove from?",
+            name: "packForDeleting",
+            choices: function (){
+                var cards = JSON.parse(fs.readFileSync("cards.json", "utf8"));
+                var choices = cards.packs;
+                choices.push("Main Menu");
+                return choices;
+            }
+        }
+    ]).then(function(inqResp){
+        var packForDeleting = inqResp.packForDeleting;
+        if (packForDeleting === "Main Menu") {
+            initialMenu();
+        }
+        Inquirer.prompt([
+            {
+                type: "checkbox",
+                message: `Please select all cards you would like to delete from the pack ${packForDeleting}`,
+                name: "cardsDeleted",
+                choices: function(){
+                    var cards = JSON.parse(fs.readFileSync("cards.json", "utf8"));
+                    var choices = [];
+                    cards.cards.cloze.forEach(function(element){
+                        if(element.packs.includes(packForDeleting)){
+                            choices.push(element.text);
+                        }
+                    });
+                    cards.cards.flash.forEach(function(element){
+                        if(element.packs.includes(packForDeleting)){
+                            choices.push(element.front);
+                        }
+                    });
+                    return choices;
+                }
+            }
+        ]).then(function(inqResp){
+            var cards = JSON.parse(fs.readFileSync("cards.json", "utf8"));
+            inqResp.cardsDeleted.forEach(function (deletedCard){
+                cards.cards.flash.forEach(function(flashCard){
+                    if (flashCard.front === deletedCard){
+                        flashCard.packs.splice(flashCard.packs.indexOf(packForDeleting),1);
+                    }
+                });
+                cards.cards.cloze.forEach(function(clozeCard){
+                    if (clozeCard.front === deletedCard){
+                        clozeCard.packs.splice(clozeCard.packs.indexOf(packForDeleting),1);
+                    }
+                });
+            });
+            fs.writeFile("cards.json", JSON.stringify(cards), "utf8");
+            Inquirer.prompt([
+                {
+                    type: "confirm",
+                    message: "Would you like to delete from another pack?",
+                    name: "removeFromMore"
+                }
+            ]).then(function(inqResp){
+                if (inqResp.removeFromMore) {
+                    removeFromPacks();
+                } else {
+                    initialMenu();
+                }
+            });
+
+        });
+    });
 
 }
 
 function deleteCards(){
-
+    Inquirer.prompt([
+        {
+            type: "checkbox",
+            name: "deletedCards",
+            message: "Check all the cards you would like to delete",
+            choices: function(){
+                var cards = JSON.parse(fs.readFileSync("cards.json", "utf8"));
+                var choices = [];
+                cards.cards.cloze.forEach(function(element){
+                    choices.push(element.text);
+                });
+                cards.cards.flash.forEach(function(element){
+                    choices.push(element.front);
+                });
+                return choices;
+            }
+        }
+    ]).then(function(inqResp){
+        var cards = JSON.parse(fs.readFileSync("cards.json", "utf8"));
+        inqResp.deletedCards.forEach(function(selectionElement){
+            cards.cards.flash.forEach(function(flashElement){
+                if (selectionElement === flashElement.front){
+                    console.log(
+                    `First If statement
+                    Flash Element: ${flashElement.front}
+                    Selection Element: ${selectionElement}`);
+                    cards.cards.flash.splice(cards.cards.flash.indexOf(flashElement),1);                    
+                }
+            });
+             cards.cards.cloze.forEach(function(clozeElement){
+                if (selectionElement === clozeElement.text){
+                    console.log(
+                    `second If statement
+                    Flash Element: ${clozeElement.text}
+                    Selection Element: ${selectionElement}`);
+                    console.log(cards.cards.cloze.indexOf(clozeElement));
+                    cards.cards.cloze.splice(cards.cards.cloze.indexOf(clozeElement),1)
+                    console.log(cards.cards.cloze)
+                }
+            });
+        });
+        fs.writeFile("cards.json", JSON.stringify(cards), "utf8");
+        Inquirer.prompt([
+            {
+                type: "confirm",
+                message: "Would you like to delete more cards?",
+                name: "deleteMoreCards"
+            }
+        ]).then(function(inqResp){
+            if (inqResp.deleteMoreCards){
+                deleteCards();
+            } else {
+                initialMenu();
+            }
+        });
+    });
 }
 
+function quiz(){
+    if (practiceArr.length > 0){
+        var index = Math.floor(Math.random()*practiceArr.length);
+        var question = practiceArr[index];
+        practiceArr.splice(index,1)
+        var prompt = "";
+        if (question.type === "cloze"){
+            var clozeArr = question.text.split(" ")
+            clozeArr.forEach(function(word, index){
+                if (question.deletion.includes(word)){
+                    clozeArr[index] = "_______";
+                }
+            });
+            prompt = clozeArr.join(" ");
+        } else if (question.type === "flash"){
+            prompt = question.front;
+        }
+        console.log(prompt);
+        Inquirer.prompt([
+            {
+                type: "input",
+                message: prompt,
+                name: "currentQuestion"
+            }
+        ]).then(function(inqResp){
+            console.log(inqResp.currentQuestion);
+            
+            quiz();
+        });
+    } else {
+        Inquirer.prompt([
+            {
+                type: "list",
+                message: "Your practice deck is empty. Return to 'Main Menu' or 'Practice Menu' to choose new cards.",
+                choices: ["Main Menu", "Practice Menu"],
+                name: "practiceMore"
+            }
+        ]).then(function(inqResp){
+            if (inqResp.practiceMore === "Main Menu"){
+                initialMenu();
+            } else {
+                practiceMenu();
+            }
+        });
+    }
+}
 initialMenu();
